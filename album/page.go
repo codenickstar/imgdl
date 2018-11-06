@@ -12,7 +12,7 @@ import (
 
 // the constants
 const nextPageID = "next_url"
-const indiceRegex = `(?mU)^i=q\.slice\(z\+1,60\)\+.+(?:\[|\()(\d)(?:\]|\)).+(?:\[|\()(\d)(?:\]|\)).+(?:\[|\()(\d)(?:\]|\));$`
+const indiceRegex = `(?mU)^i=q\.slice\(z\+1,60\)\+.+(?:\[|\()(\d{1,3})(?:\]|\)).+(?:\[|\()(\d{1,3})(?:\]|\)).+(?:\[|\()(\d{1,3})(?:\]|\));$`
 
 // Page represents one page
 type Page struct {
@@ -41,6 +41,7 @@ func ParsePage(album *Album, body io.Reader) (page Page, err error) {
 			// end of document
 			endOfDocument = true
 			break
+
 		case tokenType == html.TextToken:
 			token := tokenizer.Token()
 
@@ -54,20 +55,22 @@ func ParsePage(album *Album, body io.Reader) (page Page, err error) {
 			}
 
 			// parse the indices
-			// i=q.slice(z+1,60)+e[7]+e.charAt(6)+e[2];
 			if strings.Contains(token.String(), "i=q.slice(z+1,60)+") {
 				r := regexp.MustCompile(indiceRegex)
-				matches := r.FindAllStringSubmatch(token.String(), 3)
-				// album.logger.Debug(matches)
+				matches := r.FindStringSubmatch(token.String())
+				album.logger.Debug(matches)
 				// loop through the submatches and assign them
 				for i := 0; i < 3; i++ {
-					page.dynamicIndices[i], err = strconv.Atoi(matches[0][i+1])
+					match, err := strconv.Atoi(matches[i+1])
+					album.logger.Debug(match)
 					if err != nil {
 						album.logger.Error(err)
 					}
+					page.dynamicIndices[i] = match
 				}
 			}
 			break
+
 		case tokenType == html.StartTagToken:
 			token := tokenizer.Token()
 
@@ -80,7 +83,8 @@ func ParsePage(album *Album, body io.Reader) (page Page, err error) {
 			for outerAttKey, outerAtt := range token.Attr {
 				// get the thumbnail and the next page
 				for _, innerAtt := range token.Attr {
-					if (outerAtt.Key == "src" && innerAtt.Key == "id") || (outerAtt.Key == "id" && outerAtt.Val == nextPageID) {
+					if (outerAtt.Key == "src" && innerAtt.Key == "id") ||
+						(outerAtt.Key == "id" && outerAtt.Val == nextPageID) {
 						// print all the token
 						// album.logger.Debug(token)
 
@@ -102,8 +106,8 @@ func ParsePage(album *Album, body io.Reader) (page Page, err error) {
 		}
 	}
 
-	// do the magic
-	err = page.formatPictureLink()
+	// set the picture url
+	err = page.setPictureURL()
 	if err != nil {
 		album.logger.DPanic(err)
 		return
@@ -111,18 +115,32 @@ func ParsePage(album *Album, body io.Reader) (page Page, err error) {
 	return
 }
 
-// formatPictureLink formats the picture link from all the attributes
-func (p *Page) formatPictureLink() (err error) {
+// setPictureURL formats the picture url from all the attributes
+func (p *Page) setPictureURL() (err error) {
 	lastIndexOfSlash := strings.LastIndex(p.thumbnailSrc, "/")
+
+	// TODO: dynamicIndices are not always what they seem
 
 	p.pictureURL = fmt.Sprintf(
 		"https://b%s/%s%s%s%s.jpg",
 		p.thumbnailSrc[9:lastIndexOfSlash],
 		p.thumbnailSrc[lastIndexOfSlash+1:60],
-		string(p.thumbnailID[p.dynamicIndices[0]]),
-		string(p.thumbnailID[p.dynamicIndices[1]]),
-		string(p.thumbnailID[p.dynamicIndices[2]]),
+		p.getCharForDynamicIndice(p.dynamicIndices[0]),
+		p.getCharForDynamicIndice(p.dynamicIndices[1]),
+		p.getCharForDynamicIndice(p.dynamicIndices[2]),
 	)
 
+	return
+}
+
+func (p *Page) getCharForDynamicIndice(dynamicIndice int) (char string) {
+	switch {
+	case dynamicIndice > 60:
+		break
+	case dynamicIndice > 10:
+		break
+	default:
+		char = string(p.thumbnailID[dynamicIndice])
+	}
 	return
 }
